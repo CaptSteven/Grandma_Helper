@@ -68,6 +68,10 @@ public class MainActivity extends Activity {
     private static final String KEY_RECOMMENDATION_TEXT = "recommendation_text_";
     private static final String KEY_RECOMMENDATION_STYLE_VERSION = "recommendation_style_version";
     private static final String KEY_PROMPT_STYLE_VERSION = "prompt_style_version";
+    private static final String KEY_TOOLBOX_DATE = "toolbox_date";
+    private static final String KEY_TOOLBOX_MOOD = "toolbox_mood";
+    private static final String KEY_TOOLBOX_GRATITUDE = "toolbox_gratitude";
+    private static final String KEY_TOOLBOX_ACTION = "toolbox_action";
     private static final int PROMPT_STYLE_VERSION = 2;
     private static final int RECOMMENDATION_STYLE_VERSION = 2;
     private static final int MAX_HISTORY_MESSAGES = 12;
@@ -95,16 +99,18 @@ public class MainActivity extends Activity {
     private EditText input;
     private LinearLayout bottomInputPanel;
     private Button sendButton;
-    private Button handwritingModeButton;
-    private Button voiceModeButton;
-    private Button inputMethodButton;
     private Button recommendationNewsButton;
     private Button recommendationFunButton;
     private Button recommendationWisdomButton;
     private BouncingDotsView recommendationProgress;
     private TextView recommendationOutput;
     private boolean showingRecommendations = false;
-    private boolean voiceInputMode = false;
+    private boolean showingToolbox = false;
+    private TextView toolboxStatusText;
+    private BreathCircleView breathCircle;
+    private EditText gratitudeInput;
+    private EditText gentleActionInput;
+    private int selectedMood = 2;
     private int keyboardLiftPx = 0;
     private String lastAssistantText = "";
     private SharedPreferences prefs;
@@ -164,27 +170,40 @@ public class MainActivity extends Activity {
         root.addView(moodBadge, moodParams);
         startGentlePulse(moodBadge);
 
-        LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setOrientation(LinearLayout.HORIZONTAL);
-        toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(0, dp(4), 0, dp(10));
-        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(58)));
+        LinearLayout quickActions = new LinearLayout(this);
+        quickActions.setOrientation(LinearLayout.VERTICAL);
+        quickActions.setPadding(0, dp(4), 0, dp(10));
+        root.addView(quickActions, new LinearLayout.LayoutParams(-1, dp(112)));
+
+        LinearLayout firstActionRow = new LinearLayout(this);
+        firstActionRow.setOrientation(LinearLayout.HORIZONTAL);
+        quickActions.addView(firstActionRow, new LinearLayout.LayoutParams(-1, 0, 1));
 
         Button keyButton = secondaryButton("设置密钥");
         keyButton.setOnClickListener(v -> showKeyDialog());
-        toolbar.addView(keyButton, new LinearLayout.LayoutParams(0, -1, 1));
+        firstActionRow.addView(keyButton, new LinearLayout.LayoutParams(0, -1, 1));
 
         Button dailyButton = secondaryButton("每日推荐");
         dailyButton.setOnClickListener(v -> openRecommendationUi());
         LinearLayout.LayoutParams dailyParams = new LinearLayout.LayoutParams(0, -1, 1);
         dailyParams.leftMargin = dp(10);
-        toolbar.addView(dailyButton, dailyParams);
+        firstActionRow.addView(dailyButton, dailyParams);
+
+        LinearLayout secondActionRow = new LinearLayout(this);
+        secondActionRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams secondRowParams = new LinearLayout.LayoutParams(-1, 0, 1);
+        secondRowParams.topMargin = dp(8);
+        quickActions.addView(secondActionRow, secondRowParams);
 
         Button memoryButton = secondaryButton("记忆");
         memoryButton.setOnClickListener(v -> showMemoryDialog());
-        LinearLayout.LayoutParams memoryParams = new LinearLayout.LayoutParams(0, -1, 1);
-        memoryParams.leftMargin = dp(10);
-        toolbar.addView(memoryButton, memoryParams);
+        secondActionRow.addView(memoryButton, new LinearLayout.LayoutParams(0, -1, 1));
+
+        Button toolboxButton = secondaryButton("安心工具");
+        toolboxButton.setOnClickListener(v -> openToolboxUi());
+        LinearLayout.LayoutParams toolboxParams = new LinearLayout.LayoutParams(0, -1, 1);
+        toolboxParams.leftMargin = dp(10);
+        secondActionRow.addView(toolboxButton, toolboxParams);
 
         scrollView = new ScrollView(this);
         scrollView.setClipToPadding(false);
@@ -222,29 +241,15 @@ public class MainActivity extends Activity {
         chatProgressParams.bottomMargin = dp(2);
         bottomInputPanel.addView(chatLoadingPill, chatProgressParams);
 
-        LinearLayout inputModes = new LinearLayout(this);
-        inputModes.setOrientation(LinearLayout.HORIZONTAL);
-        inputModes.setGravity(Gravity.CENTER_VERTICAL);
-        inputModes.setPadding(0, dp(8), 0, dp(8));
-        bottomInputPanel.addView(inputModes, new LinearLayout.LayoutParams(-1, dp(58)));
-
-        handwritingModeButton = primaryButton("手写输入");
-        handwritingModeButton.setOnClickListener(v -> setInputMode(false));
-        inputModes.addView(handwritingModeButton, new LinearLayout.LayoutParams(0, -1, 1));
-
-        voiceModeButton = secondaryButton("语音输入");
-        voiceModeButton.setOnClickListener(v -> setInputMode(true));
-        LinearLayout.LayoutParams voiceModeParams = new LinearLayout.LayoutParams(0, -1, 1);
-        voiceModeParams.leftMargin = dp(10);
-        inputModes.addView(voiceModeButton, voiceModeParams);
-
         LinearLayout composer = new LinearLayout(this);
         composer.setOrientation(LinearLayout.HORIZONTAL);
         composer.setGravity(Gravity.BOTTOM);
+        composer.setPadding(0, dp(8), 0, 0);
         bottomInputPanel.addView(composer, new LinearLayout.LayoutParams(-1, dp(76)));
 
         input = new EditText(this);
         input.setTextSize(18);
+        input.setHint("点这里写字，说点什么都可以");
         input.setTextColor(getColorRes("ink"));
         input.setHintTextColor(getColorRes("muted_ink"));
         input.setBackgroundResource(getDrawableId("bg_input_field"));
@@ -261,12 +266,6 @@ public class MainActivity extends Activity {
             }
         });
         composer.addView(input, new LinearLayout.LayoutParams(0, -1, 1));
-
-        inputMethodButton = secondaryButton("输入法");
-        inputMethodButton.setOnClickListener(v -> handleInputActionButton());
-        LinearLayout.LayoutParams inputMethodParams = new LinearLayout.LayoutParams(dp(86), -1);
-        inputMethodParams.leftMargin = dp(8);
-        composer.addView(inputMethodButton, inputMethodParams);
 
         sendButton = primaryButton("发送");
         sendButton.setOnClickListener(v -> sendCurrentText());
@@ -291,7 +290,6 @@ public class MainActivity extends Activity {
         setContentView(frame);
         installKeyboardLiftListener(frame);
         animateScreenIn(frame);
-        setInputMode(voiceInputMode);
     }
 
     private Button primaryButton(String text) {
@@ -321,27 +319,7 @@ public class MainActivity extends Activity {
     }
 
     private void addPressAnimation(View view) {
-        view.setOnTouchListener((v, event) -> {
-            v.animate().cancel();
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                v.animate()
-                        .scaleX(0.98f)
-                        .scaleY(0.98f)
-                        .alpha(0.92f)
-                        .setDuration(90)
-                        .setInterpolator(new DecelerateInterpolator())
-                        .start();
-            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                v.animate()
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .alpha(1f)
-                        .setDuration(170)
-                        .setInterpolator(new DecelerateInterpolator())
-                        .start();
-            }
-            return false;
-        });
+        ButtonMotion.bind(view);
     }
 
     private void startGentlePulse(View view) {
@@ -407,11 +385,26 @@ public class MainActivity extends Activity {
                 .start();
     }
 
+    private void openToolboxUi() {
+        View current = getCurrentContentView();
+        current.animate()
+                .alpha(0f)
+                .translationY(-dp(6))
+                .setDuration(120)
+                .setInterpolator(new DecelerateInterpolator())
+                .withEndAction(() -> {
+                    resetViewAnimationState(current);
+                    buildToolboxUi();
+                })
+                .start();
+    }
+
     private void buildRecommendationUi() {
         resetWindowAnimationState();
         bottomInputPanel = null;
         keyboardLiftPx = 0;
         showingRecommendations = true;
+        showingToolbox = false;
         int pad = dp(16);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -503,8 +496,284 @@ public class MainActivity extends Activity {
         animateRecommendationOutput();
     }
 
+    private void buildToolboxUi() {
+        resetWindowAnimationState();
+        bottomInputPanel = null;
+        keyboardLiftPx = 0;
+        showingRecommendations = false;
+        showingToolbox = true;
+        int pad = dp(16);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad + getStatusBarHeight(), pad, pad + getNavigationBarHeight());
+        root.setBackgroundResource(getDrawableId("bg_app_background"));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(top, new LinearLayout.LayoutParams(-1, dp(58)));
+
+        Button backButton = secondaryButton("返回");
+        backButton.setOnClickListener(v -> returnToChat());
+        top.addView(backButton, new LinearLayout.LayoutParams(dp(92), dp(48)));
+
+        TextView title = new TextView(this);
+        title.setText("安心工具");
+        title.setTextSize(26);
+        title.setTextColor(getColorRes("ink"));
+        title.setTypeface(null, 1);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -1, 1);
+        titleParams.leftMargin = dp(12);
+        top.addView(title, titleParams);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("不想聊天时，也可以先照顾这一小会儿");
+        subtitle.setTextSize(16);
+        subtitle.setTextColor(getColorRes("muted_ink"));
+        subtitle.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(-1, -2);
+        subtitleParams.topMargin = dp(2);
+        subtitleParams.bottomMargin = dp(12);
+        root.addView(subtitle, subtitleParams);
+
+        ScrollView toolsScroll = new ScrollView(this);
+        toolsScroll.setClipToPadding(false);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(0, 0, 0, dp(12));
+        toolsScroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        root.addView(toolsScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        toolboxStatusText = new TextView(this);
+        toolboxStatusText.setText(getToolboxSummary());
+        toolboxStatusText.setTextSize(17);
+        toolboxStatusText.setLineSpacing(dp(3), 1.14f);
+        toolboxStatusText.setTextColor(getColorRes("accent_dark"));
+        toolboxStatusText.setPadding(dp(16), dp(14), dp(16), dp(14));
+        toolboxStatusText.setBackgroundResource(getDrawableId("bg_toolbox_status"));
+        content.addView(toolboxStatusText, new LinearLayout.LayoutParams(-1, -2));
+
+        content.addView(createBreathingCard());
+        content.addView(createMoodCard());
+        content.addView(createReflectionCard());
+
+        setContentView(root);
+        animateScreenIn(root);
+        animatePop(toolboxStatusText, 40);
+        if (breathCircle != null) {
+            animatePop(breathCircle, 80);
+        }
+    }
+
+    private View createBreathingCard() {
+        LinearLayout card = toolboxCard();
+
+        TextView title = cardTitle("一分钟呼吸");
+        card.addView(title);
+
+        TextView body = cardBody("跟着圆圈慢慢吸气、停一下、再呼出去。只做一轮也算。");
+        card.addView(body);
+
+        breathCircle = new BreathCircleView(this);
+        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(dp(170), dp(170));
+        circleParams.gravity = Gravity.CENTER_HORIZONTAL;
+        circleParams.topMargin = dp(12);
+        circleParams.bottomMargin = dp(12);
+        card.addView(breathCircle, circleParams);
+
+        Button toggle = primaryButton("开始呼吸");
+        toggle.setOnClickListener(v -> {
+            boolean nextRunning = !breathCircle.isRunning();
+            breathCircle.setRunning(nextRunning);
+            toggle.setText(nextRunning ? "暂停呼吸" : "开始呼吸");
+        });
+        card.addView(toggle, new LinearLayout.LayoutParams(-1, dp(52)));
+        return card;
+    }
+
+    private View createMoodCard() {
+        LinearLayout card = toolboxCard();
+        card.addView(cardTitle("现在的状态"));
+        card.addView(cardBody("不用打分很精确，只是给自己一个温柔的标记。"));
+
+        selectedMood = getTodayMood();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(52));
+        rowParams.topMargin = dp(12);
+        card.addView(row, rowParams);
+
+        addMoodButton(row, "低落", 1, 0);
+        addMoodButton(row, "还行", 2, dp(8));
+        addMoodButton(row, "轻松", 3, dp(8));
+        return card;
+    }
+
+    private View createReflectionCard() {
+        LinearLayout card = toolboxCard();
+        card.addView(cardTitle("今天的小事"));
+        card.addView(cardBody("写一句已经发生的安稳小事，再给自己留一个很小的下一步。"));
+
+        gratitudeInput = toolboxEditText("例如：今天晒到了一点太阳");
+        gratitudeInput.setText(getTodayString(KEY_TOOLBOX_GRATITUDE));
+        LinearLayout.LayoutParams gratitudeParams = new LinearLayout.LayoutParams(-1, dp(58));
+        gratitudeParams.topMargin = dp(12);
+        card.addView(gratitudeInput, gratitudeParams);
+
+        gentleActionInput = toolboxEditText("例如：喝半杯水，或把窗帘拉开");
+        gentleActionInput.setText(getTodayString(KEY_TOOLBOX_ACTION));
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-1, dp(58));
+        actionParams.topMargin = dp(10);
+        card.addView(gentleActionInput, actionParams);
+
+        Button saveButton = primaryButton("保存今天");
+        saveButton.setOnClickListener(v -> saveToolboxReflection());
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(52));
+        saveParams.topMargin = dp(12);
+        card.addView(saveButton, saveParams);
+        return card;
+    }
+
+    private LinearLayout toolboxCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.setBackgroundResource(getDrawableId("bg_toolbox_card"));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(14);
+        card.setLayoutParams(params);
+        return card;
+    }
+
+    private TextView cardTitle(String text) {
+        TextView title = new TextView(this);
+        title.setText(text);
+        title.setTextSize(21);
+        title.setTextColor(getColorRes("ink"));
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        return title;
+    }
+
+    private TextView cardBody(String text) {
+        TextView body = new TextView(this);
+        body.setText(text);
+        body.setTextSize(16);
+        body.setLineSpacing(dp(3), 1.12f);
+        body.setTextColor(getColorRes("muted_ink"));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(6);
+        body.setLayoutParams(params);
+        return body;
+    }
+
+    private EditText toolboxEditText(String hint) {
+        EditText editText = new EditText(this);
+        editText.setTextSize(16);
+        editText.setSingleLine(true);
+        editText.setHint(hint);
+        editText.setTextColor(getColorRes("ink"));
+        editText.setHintTextColor(getColorRes("muted_ink"));
+        editText.setBackgroundResource(getDrawableId("bg_input_field"));
+        editText.setPadding(dp(16), 0, dp(16), 0);
+        editText.setInputType(InputType.TYPE_CLASS_TEXT);
+        return editText;
+    }
+
+    private void addMoodButton(LinearLayout row, String text, int mood, int leftMargin) {
+        Button button = selectedMood == mood ? primaryButton(text) : secondaryButton(text);
+        button.setOnClickListener(v -> {
+            selectedMood = mood;
+            saveTodayMood(mood);
+            Toast.makeText(this, "已记录：" + text, Toast.LENGTH_SHORT).show();
+            buildToolboxUi();
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
+        params.leftMargin = leftMargin;
+        row.addView(button, params);
+    }
+
+    private void saveToolboxReflection() {
+        String gratitude = gratitudeInput == null ? "" : gratitudeInput.getText().toString().trim();
+        String action = gentleActionInput == null ? "" : gentleActionInput.getText().toString().trim();
+        prefs.edit()
+                .putString(KEY_TOOLBOX_DATE, getTodayKey())
+                .putInt(KEY_TOOLBOX_MOOD, selectedMood)
+                .putString(KEY_TOOLBOX_GRATITUDE, gratitude)
+                .putString(KEY_TOOLBOX_ACTION, action)
+                .apply();
+        if (toolboxStatusText != null) {
+            toolboxStatusText.setText(getToolboxSummary());
+        }
+        Toast.makeText(this, "已保存今天的小记录", Toast.LENGTH_SHORT).show();
+        hideToolboxKeyboard();
+    }
+
+    private void saveTodayMood(int mood) {
+        prefs.edit()
+                .putString(KEY_TOOLBOX_DATE, getTodayKey())
+                .putInt(KEY_TOOLBOX_MOOD, mood)
+                .apply();
+    }
+
+    private int getTodayMood() {
+        if (!getTodayKey().equals(prefs.getString(KEY_TOOLBOX_DATE, ""))) {
+            return 2;
+        }
+        return prefs.getInt(KEY_TOOLBOX_MOOD, 2);
+    }
+
+    private String getTodayString(String key) {
+        if (!getTodayKey().equals(prefs.getString(KEY_TOOLBOX_DATE, ""))) {
+            return "";
+        }
+        return prefs.getString(key, "");
+    }
+
+    private String getToolboxSummary() {
+        String moodText = moodLabel(getTodayMood());
+        String gratitude = getTodayString(KEY_TOOLBOX_GRATITUDE).trim();
+        String action = getTodayString(KEY_TOOLBOX_ACTION).trim();
+        if (gratitude.isEmpty() && action.isEmpty()) {
+            return "今天状态：" + moodText + "\n先做一分钟呼吸，或者写一句今天还算安稳的小事。";
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append("今天状态：").append(moodText);
+        if (!gratitude.isEmpty()) {
+            builder.append("\n安稳小事：").append(gratitude);
+        }
+        if (!action.isEmpty()) {
+            builder.append("\n下一小步：").append(action);
+        }
+        return builder.toString();
+    }
+
+    private String moodLabel(int mood) {
+        if (mood <= 1) {
+            return "有点低落";
+        }
+        if (mood >= 3) {
+            return "稍微轻松";
+        }
+        return "还行，慢慢来";
+    }
+
+    private void hideToolboxKeyboard() {
+        View focused = getCurrentFocus();
+        if (focused == null) {
+            return;
+        }
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+        }
+        focused.clearFocus();
+    }
+
     private void returnToChat() {
         showingRecommendations = false;
+        showingToolbox = false;
         View current = getCurrentContentView();
         current.animate()
                 .alpha(0f)
@@ -610,34 +879,6 @@ public class MainActivity extends Activity {
                 scrollView.post(() -> scrollView.smoothScrollTo(0, chatList.getBottom()));
             }
         }
-    }
-
-    private void setInputMode(boolean voiceMode) {
-        voiceInputMode = voiceMode;
-        if (input == null || inputMethodButton == null || handwritingModeButton == null || voiceModeButton == null) {
-            return;
-        }
-        input.setHint(voiceMode ? "点“输入法”，选择带麦克风的中文输入法" : "点这里写字，或点“输入法”切到手写输入法");
-        inputMethodButton.setText("输入法");
-        handwritingModeButton.setBackgroundResource(getDrawableId(voiceMode ? "bg_button_secondary" : "bg_button_primary"));
-        handwritingModeButton.setTextColor(voiceMode ? getColorRes("ink") : Color.WHITE);
-        voiceModeButton.setBackgroundResource(getDrawableId(voiceMode ? "bg_button_primary" : "bg_button_secondary"));
-        voiceModeButton.setTextColor(voiceMode ? Color.WHITE : getColorRes("ink"));
-        animatePop(voiceMode ? voiceModeButton : handwritingModeButton, 0);
-        input.requestFocus();
-        input.postDelayed(() -> showSoftKeyboard(), 150);
-    }
-
-    private void handleInputActionButton() {
-        showSoftKeyboard();
-        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.showInputMethodPicker();
-        }
-        String hint = voiceInputMode
-                ? "请选择带麦克风的中文输入法，或切到输入法里的语音输入"
-                : "请选择带手写的中文输入法，或切到输入法里的手写模式";
-        Toast.makeText(this, hint, Toast.LENGTH_LONG).show();
     }
 
     private void showSoftKeyboard() {
@@ -1364,18 +1605,6 @@ public class MainActivity extends Activity {
     private void setLoading(boolean loading) {
         sendButton.setEnabled(!loading);
         sendButton.setAlpha(loading ? 0.62f : 1f);
-        if (inputMethodButton != null) {
-            inputMethodButton.setEnabled(!loading);
-            inputMethodButton.setAlpha(loading ? 0.62f : 1f);
-        }
-        if (handwritingModeButton != null) {
-            handwritingModeButton.setEnabled(!loading);
-            handwritingModeButton.setAlpha(loading ? 0.62f : 1f);
-        }
-        if (voiceModeButton != null) {
-            voiceModeButton.setEnabled(!loading);
-            voiceModeButton.setAlpha(loading ? 0.62f : 1f);
-        }
         if (chatLoadingPill != null) {
             chatLoadingPill.animate().cancel();
             chatLoadingPill.setVisibility(View.VISIBLE);
@@ -1497,6 +1726,10 @@ public class MainActivity extends Activity {
             returnToChat();
             return;
         }
+        if (showingToolbox) {
+            returnToChat();
+            return;
+        }
         super.onBackPressed();
     }
 
@@ -1543,6 +1776,86 @@ public class MainActivity extends Activity {
                 canvas.drawCircle(startX + i * spacing, y, dp(5), paint);
             }
             if (getVisibility() == View.VISIBLE) {
+                postInvalidateDelayed(48);
+            }
+        }
+    }
+
+    private class BreathCircleView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean running = false;
+        private long startedAt = 0L;
+
+        BreathCircleView(Context context) {
+            super(context);
+        }
+
+        boolean isRunning() {
+            return running;
+        }
+
+        void setRunning(boolean running) {
+            this.running = running;
+            startedAt = System.currentTimeMillis();
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float width = getWidth();
+            float height = getHeight();
+            float centerX = width / 2f;
+            float centerY = height / 2f;
+            long now = System.currentTimeMillis();
+            float cycle = running ? ((now - startedAt) % 8000L) / 8000f : 0.72f;
+            float scale;
+            String label;
+            if (!running) {
+                scale = 0.72f;
+                label = "准备好";
+            } else if (cycle < 0.38f) {
+                scale = 0.58f + (cycle / 0.38f) * 0.28f;
+                label = "慢慢吸气";
+            } else if (cycle < 0.5f) {
+                scale = 0.86f;
+                label = "停一下";
+            } else {
+                scale = 0.86f - ((cycle - 0.5f) / 0.5f) * 0.28f;
+                label = "轻轻呼气";
+            }
+
+            float outer = Math.min(width, height) * 0.45f;
+            float radius = outer * scale;
+
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(getColorRes("accent_soft"));
+            paint.setAlpha(220);
+            canvas.drawCircle(centerX, centerY, outer, paint);
+
+            paint.setColor(getColorRes("peach_soft"));
+            paint.setAlpha(230);
+            canvas.drawCircle(centerX, centerY, radius + dp(12), paint);
+
+            paint.setColor(getColorRes("accent_mid"));
+            paint.setAlpha(185);
+            canvas.drawCircle(centerX, centerY, radius, paint);
+
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(getColorRes("accent_dark"));
+            paint.setAlpha(120);
+            paint.setStrokeWidth(dp(1.5f));
+            canvas.drawCircle(centerX, centerY, radius, paint);
+
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            paint.setTextSize(dp(17));
+            paint.setColor(Color.WHITE);
+            paint.setAlpha(245);
+            canvas.drawText(label, centerX, centerY + dp(6), paint);
+
+            if (running) {
                 postInvalidateDelayed(48);
             }
         }
